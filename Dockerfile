@@ -5,22 +5,18 @@ FROM docker.io/library/node:20-slim as builder
 # Definimos o diretório de trabalho
 WORKDIR /app
 
+# CORREÇÃO: Instalar o GIT, que é necessário para os scripts de build do projeto
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 # Copiamos TODOS os arquivos de código-fonte primeiro
 COPY . .
 
-# CIRURGIA 1: Modificamos o package.json em tempo real para remover a dependência do git.
-# Usamos `|| true` para não dar erro se a linha não for encontrada.
-RUN sed -i "s/\"npm run generate && /\"/g" package.json || true
-
-# CIRURGIA 2: Criamos o arquivo falso que o build espera encontrar.
-RUN mkdir -p packages/cli/generated && \
-    echo "export const GIT_COMMIT_INFO = { commit: 'docker-build', date: 'N/A' };" > packages/cli/generated/git-commit.js
-
-# Agora, rodamos o npm install com segurança.
+# Agora, rodamos o npm install. Ele vai rodar os scripts 'prepare' e 'generate'
+# que agora funcionarão, pois o GIT está instalado.
 RUN npm install
 
-# Executamos o comando de 'pack' para criar os pacotes .tgz
-RUN npm run pack
+# Executamos o comando de 'package' para criar os pacotes .tgz
+RUN npm run package
 
 
 # --- Estágio 2: Final ---
