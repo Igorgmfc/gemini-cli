@@ -8,17 +8,19 @@ WORKDIR /app
 # Copiamos TODOS os arquivos de código-fonte primeiro
 COPY . .
 
-# CIRURGIA: Criamos o arquivo falso que o build espera encontrar ANTES de tudo.
+# CIRURGIA 1: Modificamos o package.json em tempo real para remover a dependência do git.
+# Usamos `|| true` para não dar erro se a linha não for encontrada.
+RUN sed -i "s/\"npm run generate && /\"/g" package.json || true
+
+# CIRURGIA 2: Criamos o arquivo falso que o build espera encontrar.
 RUN mkdir -p packages/cli/generated && \
     echo "export const GIT_COMMIT_INFO = { commit: 'docker-build', date: 'N/A' };" > packages/cli/generated/git-commit.js
 
-# Agora, rodamos o npm install com a flag --ignore-scripts para evitar
-# que o script "prepare" problemático seja executado.
-RUN npm install --ignore-scripts
+# Agora, rodamos o npm install com segurança.
+RUN npm install
 
-# Com as dependências instaladas, AGORA rodamos o build e o package.
-RUN npm run build
-RUN npm run package
+# Executamos o comando de 'pack' para criar os pacotes .tgz
+RUN npm run pack
 
 
 # --- Estágio 2: Final ---
