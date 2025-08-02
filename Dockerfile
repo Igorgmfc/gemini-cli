@@ -1,50 +1,56 @@
+# --- Estágio 1: Builder ---
+# Usamos uma imagem Node para compilar o projeto
+FROM docker.io/library/node:20-slim as builder
+
+# Definimos o diretório de trabalho
+WORKDIR /app
+
+# Copiamos TODOS os arquivos de código-fonte primeiro
+COPY . .
+
+# CIRURGIA 1: Modificamos o package.json em tempo real para remover a dependência do git.
+# Usamos `|| true` para não dar erro se a linha não for encontrada.
+RUN sed -i "s/\"npm run generate && /\"/g" package.json || true
+
+# CIRURGIA 2: Criamos o arquivo falso que o build espera encontrar.
+RUN mkdir -p packages/cli/generated && \
+    echo "export const GIT_COMMIT_INFO = { commit: 'docker-build', date: 'N/A' };" > packages/cli/generated/git-commit.js
+
+# Agora, rodamos o npm install com segurança.
+RUN npm install
+
+# Executamos o comando de 'pack' para criar os pacotes .tgz
+RUN npm run pack
+
+
+# --- Estágio 2: Final ---
+# Começamos de uma imagem limpa
 FROM docker.io/library/node:20-slim
 
-ARG SANDBOX_NAME="gemini-cli-sandbox"
-ARG CLI_VERSION_ARG
-ENV SANDBOX="$SANDBOX_NAME"
-ENV CLI_VERSION=$CLI_VERSION_ARG
-
-# install minimal set of packages, then clean up
+# Instalamos as dependências de sistema necessárias
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  python3 \
-  make \
-  g++ \
-  man-db \
-  curl \
-  dnsutils \
-  less \
-  jq \
-  bc \
-  gh \
-  git \
-  unzip \
-  rsync \
-  ripgrep \
-  procps \
-  psmisc \
-  lsof \
-  socat \
-  ca-certificates \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+    python3 make g++ man-db curl dnsutils less jq bc gh git unzip \
+    rsync ripgrep procps psmisc lsof socat ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# set up npm global package folder under /usr/local/share
-# give it to non-root user node, already set up in base image
+# Configuramos o diretório global do NPM
 RUN mkdir -p /usr/local/share/npm-global \
-  && chown -R node:node /usr/local/share/npm-global
+    && chown -R node:node /usr/local/share/npm-global
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=$PATH:/usr/local/share/npm-global/bin
 
-# switch to non-root user node
+# Trocamos para o usuário 'node'
 USER node
 
-# install gemini-cli and clean up
-COPY packages/cli/dist/google-gemini-cli-*.tgz /usr/local/share/npm-global/gemini-cli.tgz
-COPY packages/core/dist/google-gemini-cli-core-*.tgz /usr/local/share/npm-global/gemini-core.tgz
-RUN npm install -g /usr/local/share/npm-global/gemini-cli.tgz /usr/local/share/npm-global/gemini-core.tgz \
-  && npm cache clean --force \
-  && rm -f /usr/local/share/npm-global/gemini-{cli,core}.tgz
+# Copiamos os pacotes .tgz compilados do estágio 'builder'
+COPY --from=builder /app/packages/cli/dist/google-gemini-cli-*.tgz /usr/local/share/npm-global/gemini-cli.tgz
+COPY --from=builder /app/packages/core/dist/google-gemini-cli-core-*.tgz /usr/local/share/npm-global/gemini-core.tgz
 
-# default entrypoint when none specified
-CMD ["gemini"]
+# Instalamos a CLI globalmente a partir dos arquivos que acabamos de copiar
+RUN npm install -g /usr/local/share/npm-global/gemini-cli.tgz /usr/local/share/npm-global/gemini-core.tgz \
+    && npm cache clean --force \
+    && rm -f /usr/local/share/npm-global/gemini-{cli,core}.tgz
+
+# Definimos o comando padrão para manter o contêiner ativo
+CMD ["tail", "-f", "/dev/null"]
